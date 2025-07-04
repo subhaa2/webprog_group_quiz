@@ -1,17 +1,26 @@
-use actix_web::{get, post, patch, delete, web, HttpResponse, Responder};
+use actix_web::{get, post, patch, delete, web, HttpResponse, Responder, Error, HttpMessage};
 use sqlx::SqlitePool;
 use crate::models::{BugReport, NewBugReport, UpdateBugReport,RegisterRequest, LoginResponse,LoginRequest,Project,NewProject};
-use crate::auth::{verify_password, create_jwt, hash_password};
+use crate::auth::{verify_password, create_jwt, hash_password,validate_jwt};
 use std::collections::HashMap;
 use std::sync::Mutex;
 use crate::db;
-
+use actix_web_httpauth::extractors::bearer::BearerAuth;
+use tera::Tera;
+use crate::auth::Claims;
+use crate::auth_middleware::validator;
+use actix_web::dev::ServiceRequest;
 
 pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::resource("/projects")
             .route(web::get().to(get_projects))
-            .route(web::post().to(add_project))
+            .route(web::post().to(add_project).wrap(
+                actix_web::middleware::Compat::new(
+                    actix_web_httpauth::middleware::HttpAuthentication::bearer(admin_validator)
+                )
+            )
+    )
     )
     .service(
         web::resource("/bugs/{id}")
@@ -26,6 +35,21 @@ pub fn config(cfg: &mut web::ServiceConfig) {
     )
     .service(register)
     .service(login);
+}
+
+async fn admin_validator(
+    req: ServiceRequest,
+    credentials: BearerAuth,
+) -> Result<ServiceRequest, (Error, ServiceRequest)> {
+    let token = credentials.token();
+    match validate_jwt(token) {
+        Ok(claims) if claims.role == "admin" => {
+            req.extensions_mut().insert(claims);
+            Ok(req)
+        }
+        Ok(_) => Err((actix_web::error::ErrorForbidden("Admin access required"), req)),
+        Err(_) => Err((actix_web::error::ErrorUnauthorized("Invalid token"), req)),
+    }
 }
 
 pub async fn create_bug(
@@ -194,11 +218,12 @@ pub async fn register(
     // Store user in database
     let result = sqlx::query!(
         r#"
-        INSERT INTO developers (username, password_hash)
-        VALUES (?, ?)
+        INSERT INTO developers (username, password_hash, role)
+        VALUES (?, ?, ?)
         "#,
         req.username,
-        hashed_password
+        hashed_password,
+        "admin" // Default role
     )
     .execute(db.get_ref())
     .await;
@@ -222,7 +247,7 @@ pub async fn login(
 ) -> impl Responder {
     // Get user from database
     let user = match sqlx::query!(
-        r#"SELECT password_hash FROM developers WHERE username = ?"#,
+        r#"SELECT password_hash, role FROM developers WHERE username = ?"#,
         req.username
     )
     .fetch_optional(db.get_ref())
@@ -234,7 +259,7 @@ pub async fn login(
     match user {
         Some(user) => {
             if verify_password(&req.password, &user.password_hash) {
-                match create_jwt(&req.username) {
+                match create_jwt(&req.username, &user.role) {
                     Ok(token) => HttpResponse::Ok().json(LoginResponse {
                         status: "success".to_string(),
                         token: Some(token),

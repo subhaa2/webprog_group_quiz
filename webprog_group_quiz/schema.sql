@@ -20,3 +20,5 @@ CREATE TABLE IF NOT EXISTS developers (
     username TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL
 );
+
+ALTER TABLE developers ADD COLUMN role TEXT NOT NULL DEFAULT 'user';

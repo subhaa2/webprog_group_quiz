@@ -9,8 +9,9 @@ const JWT_EXPIRATION_HOURS: i64 = 24;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Claims {
-    pub sub: String,  // username
-    pub exp: usize,   // expiry timestamp
+    pub sub: String,  
+    pub exp: usize,   
+    pub role: String, 
 }
 
 // Password hashing remains the same
@@ -26,7 +27,7 @@ pub fn verify_password(input_password: &str, expected_hash: &str) -> bool {
 }
 
 // New JWT functions
-pub fn create_jwt(username: &str) -> Result<String, jsonwebtoken::errors::Error> {
+pub fn create_jwt(username: &str, role: &str) -> Result<String, jsonwebtoken::errors::Error> {
     let expiration = Utc::now()
         .checked_add_signed(Duration::hours(JWT_EXPIRATION_HOURS))
         .expect("Invalid timestamp")
@@ -35,6 +36,7 @@ pub fn create_jwt(username: &str) -> Result<String, jsonwebtoken::errors::Error>
     let claims = Claims {
         sub: username.to_owned(),
         exp: expiration as usize,
+        role: role.to_string(),
     };
 
     encode(
