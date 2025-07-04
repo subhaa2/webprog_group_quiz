@@ -4,8 +4,7 @@ use crate::models::{BugReport, NewBugReport, UpdateBugReport,RegisterRequest, Lo
 use std::collections::HashMap;
 use std::sync::Mutex;
 use crate::db;
-use tera::Tera;
-use tera::Context;
+use tera::{Tera, Context};  
 use actix_web::dev::ServiceRequest;
 use crate::auth::{verify_password, hash_password, store_user_session};
 use actix_session::Session;
@@ -44,10 +43,10 @@ pub async fn create_bug(
     body: web::Json<NewBugReport>
 ) -> impl Responder {
     let result = sqlx::query(
-        "INSERT INTO bugreport (developer_id, project_id, bug_description, bug_severity) VALUES (?, ?, ?, ?)"
+        "INSERT INTO bugreport (project_id, bug_title, bug_description, bug_severity) VALUES (?, ?, ?, ?)"
     )
-    .bind(&body.developer_id)
     .bind(&body.project_id)
+    .bind(&body.bug_title)
     .bind(&body.bug_description)
     .bind(&body.bug_severity)
     .execute(pool.get_ref())
@@ -65,7 +64,7 @@ pub async fn create_bug(
 }
 
 async fn get_projects(_pool: web::Data<SqlitePool>) -> impl Responder {
-    let projects_result = sqlx::query_as::<_,Project>("SELECT project_id, project_name, project_description FROM projects")
+    let projects_result = sqlx::query_as::<_,Project>("SELECT project_id, project_name, project_description FROM projects where project_status = 'active'")
             .fetch_all(_pool.get_ref())
             .await;
 
