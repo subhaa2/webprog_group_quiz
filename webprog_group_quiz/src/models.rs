@@ -38,6 +38,11 @@ pub struct BugAssignForm {
     pub developer_id: i64, 
 }
 
+#[derive(Debug, Deserialize)]
+pub struct CloseProjectForm {
+    pub project_id: i64, 
+}
+
 #[derive(Serialize, Deserialize, FromRow, Debug)]
 pub struct Project {
     pub project_id: i64,

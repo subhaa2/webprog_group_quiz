@@ -1,7 +1,8 @@
 use actix_web::{get, post, patch, delete, web, HttpResponse, Responder, Error, HttpMessage};
 use sqlx::SqlitePool;
-use crate::models::{BugReport, NewBugReport, UpdateBugReport,RegisterRequest, LoginResponse,LoginRequest,Project,NewProject,Developer, BugAssignForm};
+use crate::models::{BugAssignForm, BugReport, CloseProjectForm, Developer, LoginRequest, LoginResponse, NewBugReport, NewProject, Project, RegisterRequest, UpdateBugReport};
 use std::collections::HashMap;
+use std::result;
 use std::sync::Mutex;
 use crate::db;
 use tera::{Tera, Context};  
@@ -13,8 +14,12 @@ pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::resource("/projects")
             .route(web::get().to(get_projects))
-            .route(web::post().to(add_project)
+            .route(web::post().to(add_project))
     )
+    .service(
+        web::resource("/projects/close")
+            .route(web::get().to(get_close_project_form))
+            .route(web::post().to(set_close_project_form))
     )
     .service(
         web::resource("/bugs/assign")
@@ -105,6 +110,48 @@ async fn add_project(_pool: web::Data<SqlitePool>, _body: web::Json<NewProject>,
             }
         }
     }
+
+async fn get_close_project_form(_pool: web::Data<SqlitePool>, tmpl: web::Data<Tera>,) -> impl Responder{
+    let result = sqlx::query_as!(Project,"SELECT project_id, project_name, project_description, project_status FROM projects WHERE project_status != 'closed'")
+        .fetch_all(_pool.get_ref())
+        .await;
+
+    match result {
+        Ok(projects) => {
+            let mut ctx = tera::Context::new();
+            ctx.insert("projects",&projects);
+
+            tmpl.render("close_project_form.html", &ctx)
+                .map(|html| HttpResponse::Ok().content_type("text/html").body(html))
+                .unwrap_or_else(|e|{
+                    eprint!("Template render error: {:?}",e);
+                    HttpResponse::InternalServerError().body("Templated render error")
+                })
+        }
+        Err(err) => {
+            eprint!("Database error: {:?}",err);
+            HttpResponse::InternalServerError().finish()
+        }
+    }
+}
+
+async fn set_close_project_form(_pool:web::Data<SqlitePool>,form:web::Form<CloseProjectForm>) -> impl Responder {
+    let result = sqlx::query!("Update projects SET project_status = 'closed' WHERE project_id = ?",
+                    form.project_id)
+                    .execute(_pool.get_ref())
+                    .await;
+
+    match result {
+        Ok(res) if res.rows_affected() > 0 => {
+            HttpResponse::Ok().body("Project successfully closed.")
+        }
+        Ok(_) => HttpResponse::NotFound().body("Project not found or already closed."),
+        Err(err) => {
+            eprintln!("Error closing project: {:?}", err);
+            HttpResponse::InternalServerError().body("Failed to close project.")
+        }
+    }
+}
 
 // Get all the listed bug reports
 async fn list_bugs(db: web::Data<SqlitePool>) -> impl Responder {
@@ -315,6 +362,20 @@ pub async fn login(
             status: "failure".to_string(),
             message: Some("Login unsuccessful".to_string()),
         }),
+    }
+}
+
+#[get("/login")]
+pub async fn login_page(tmpl: web::Data<tera::Tera>) -> impl Responder {
+    let ctx = tera::Context::new();
+    match tmpl.render("login.html", &ctx){
+        Ok(html) => HttpResponse::Ok()
+            .content_type("text/html")
+            .body(html),
+        Err(err) => {
+            eprint!("Template render error: {:?}",err);
+            HttpResponse::InternalServerError().body("Template error")
+        }
     }
 }
 
