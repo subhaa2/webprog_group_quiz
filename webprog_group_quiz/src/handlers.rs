@@ -27,8 +27,33 @@ pub fn config(cfg: &mut web::ServiceConfig) {
     .service(login);
 }
 
+pub async fn create_bug(
+    pool: web::Data<SqlitePool>,
+    body: web::Json<NewBugReport>
+) -> impl Responder {
+    let result = sqlx::query(
+        "INSERT INTO bugs (developer_id, project_id, bug_description, bug_severity, report_time) VALUES (?, ?, ?, ?, ?)"
+    )
+    .bind(&body.developer_id)
+    .bind(&body.project_id)
+    .bind(&body.bug_description)
+    .bind(&body.bug_severity)
+    .execute(pool.get_ref())
+    .await;
+
+    match result {
+        Ok(res) => {
+            HttpResponse::Ok().body(format!("New bug inserted with ID: {}", res.last_insert_rowid()))
+        },
+        Err(err) => {
+            eprintln!("Insert Bug Error: {:?}", err);
+            HttpResponse::InternalServerError().finish()
+        }
+    }
+}
+
 async fn get_projects(_pool: web::Data<SqlitePool>) -> impl Responder {
-    let projects_result = sqlx::query_as::<_,Project>("SELECT * FROM projects")
+    let projects_result = sqlx::query_as::<_,Project>("SELECT project_id, project_name, project_description FROM projects")
             .fetch_all(_pool.get_ref())
             .await;
 

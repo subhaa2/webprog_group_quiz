@@ -32,9 +32,9 @@ pub struct UpdateBugReport {
 
 #[derive(Serialize, Deserialize, FromRow, Debug)]
 pub struct Project {
-    pub id: i64,
-    pub name: String,
-    pub description: String
+    pub project_id: i64,
+    pub project_name: String,
+    pub project_description: String
 }
 
 #[derive(Deserialize)]
