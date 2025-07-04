@@ -42,3 +42,19 @@ pub struct NewProject {
     pub name: String,
     pub description: String,
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct LoginRequest {
+    pub username: String,
+    pub password: String,
+}
+#[derive(Debug, Serialize, Deserialize)]
+pub struct LoginResponse {
+    pub status: String,
+    pub token: Option<String>, 
+}
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RegisterRequest {
+    pub username: String,
+    pub password: String,
+}

@@ -1,6 +1,10 @@
 use actix_web::{get, post, patch, delete, web, HttpResponse, Responder};
 use sqlx::SqlitePool;
-use crate::models::{BugReport, NewBugReport, UpdateBugReport, NewProject, Project};
+use crate::models::{BugReport, NewBugReport, UpdateBugReport,RegisterRequest, LoginResponse,LoginRequest,Project,NewProject};
+use crate::auth::{verify_password, create_jwt, hash_password};
+use std::collections::HashMap;
+use std::sync::Mutex;
+use crate::db;
 
 
 pub fn config(cfg: &mut web::ServiceConfig) {
@@ -19,6 +23,8 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         web::resource("/bugs")
             .route(web::get().to(list_bugs))
     );
+    .service(register)
+    .service(login);
 }
 
 async fn get_projects(_pool: web::Data<SqlitePool>) -> impl Responder {
@@ -148,5 +154,77 @@ async fn delete_bug(
         Ok(res) if res.rows_affected() > 0 => HttpResponse::Ok().body("Bug deleted"),
         Ok(_) => HttpResponse::NotFound().body("Bug not found"),
         Err(_) => HttpResponse::InternalServerError().finish(),
+    }
+}
+
+#[post("/register")]
+pub async fn register(
+    db: web::Data<SqlitePool>,
+    req: web::Json<RegisterRequest>,
+) -> impl Responder {
+    // Hash the password
+    let hashed_password = hash_password(&req.password);
+    
+    // Store user in database
+    let result = sqlx::query!(
+        r#"
+        INSERT INTO developers (username, password_hash)
+        VALUES (?, ?)
+        "#,
+        req.username,
+        hashed_password
+    )
+    .execute(db.get_ref())
+    .await;
+    
+    match result {
+        Ok(_) => HttpResponse::Ok().json("Registration successful"),
+        Err(e) => {
+            if e.to_string().contains("UNIQUE constraint failed") {
+                HttpResponse::BadRequest().json("Username already exists")
+            } else {
+                HttpResponse::InternalServerError().json("Registration failed")
+            }
+        }
+    }
+}
+
+#[post("/login")]
+pub async fn login(
+    db: web::Data<sqlx::SqlitePool>,
+    req: web::Json<LoginRequest>,
+) -> impl Responder {
+    // Get user from database
+    let user = match sqlx::query!(
+        r#"SELECT password_hash FROM developers WHERE username = ?"#,
+        req.username
+    )
+    .fetch_optional(db.get_ref())
+    .await {
+        Ok(user) => user,
+        Err(_) => return HttpResponse::InternalServerError().finish(),
+    };
+
+    match user {
+        Some(user) => {
+            if verify_password(&req.password, &user.password_hash) {
+                match create_jwt(&req.username) {
+                    Ok(token) => HttpResponse::Ok().json(LoginResponse {
+                        status: "success".to_string(),
+                        token: Some(token),
+                    }),
+                    Err(_) => HttpResponse::InternalServerError().json("Failed to generate token"),
+                }
+            } else {
+                HttpResponse::Unauthorized().json(LoginResponse {
+                    status: "failure".to_string(),
+                    token: None,
+                })
+            }
+        }
+        None => HttpResponse::Unauthorized().json(LoginResponse {
+            status: "failure".to_string(),
+            token: None,
+        }),
     }
 }
