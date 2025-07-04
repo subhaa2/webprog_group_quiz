@@ -1,5 +1,6 @@
 use sqlx::{Pool, Sqlite};
 use sqlx::sqlite::SqlitePoolOptions;
+use std::env;
 
 pub async fn init_db() -> Pool<Sqlite> {
     let db_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
