@@ -22,7 +22,7 @@ pub fn config(cfg: &mut web::ServiceConfig) {
     .service(
         web::resource("/bugs")
             .route(web::get().to(list_bugs))
-    );
+    )
     .service(register)
     .service(login);
 }
