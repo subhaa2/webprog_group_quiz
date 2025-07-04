@@ -22,7 +22,7 @@ pub fn config(cfg: &mut web::ServiceConfig) {
     .service(
         web::resource("/bugs")
             .route(web::get().to(list_bugs))
-            .route(web::get().to(create_bug))
+            .route(web::post().to(create_bug))
     )
     .service(register)
     .service(login);
@@ -33,7 +33,7 @@ pub async fn create_bug(
     body: web::Json<NewBugReport>
 ) -> impl Responder {
     let result = sqlx::query(
-        "INSERT INTO bugreport (developer_id, project_id, bug_description, bug_severity, report_time) VALUES (?, ?, ?, ?, ?)"
+        "INSERT INTO bugreport (developer_id, project_id, bug_description, bug_severity) VALUES (?, ?, ?, ?)"
     )
     .bind(&body.developer_id)
     .bind(&body.project_id)
