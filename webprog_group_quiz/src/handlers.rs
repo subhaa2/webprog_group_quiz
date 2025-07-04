@@ -1,15 +1,67 @@
 use actix_web::{get, post, patch, delete, web, HttpResponse, Responder};
 use sqlx::SqlitePool;
-use crate::models::{BugReport, NewBugReport, UpdateBugReport};
+use crate::models::{BugReport, NewBugReport, UpdateBugReport, NewProject, Project};
+
+
+pub fn config(cfg: &mut web::ServiceConfig) {
+    cfg.service(
+        web::resource("/projects")
+            .route(web::get().to(get_projects))
+            .route(web::post().to(add_project))
+    )
+    .service(
+        web::resource("/bugs/{id}")
+            .route(web::get().to(get_bug))
+            .route(web::patch().to(update_bug))
+            .route(web::delete().to(delete_bug))
+    )
+    .service(
+        web::resource("/bugs")
+            .route(web::get().to(list_bugs))
+    );
+}
+
+async fn get_projects(_pool: web::Data<SqlitePool>) -> impl Responder {
+    let projects_result = sqlx::query_as::<_,Project>("SELECT * FROM projects")
+            .fetch_all(_pool.get_ref())
+            .await;
+
+    match projects_result {
+        Ok(projects) => HttpResponse::Ok().json(projects),
+        Err(err) => {
+            eprintln!("Database error: {:?}", err);
+            HttpResponse::InternalServerError().body("Failed to fetch projects")
+        }
+    }
+}
+
+async fn add_project(_pool: web::Data<SqlitePool>, _body: web::Json<NewProject>) -> impl Responder {
+    let new_project_name = &_body.name;
+    let new_project_descripton = &_body.description;
+
+    let result = sqlx::query("INSERT INTO projects (project_name, project_description) VALUES (?, ?)")
+            .bind(new_project_name)
+            .bind(new_project_descripton)
+            .execute(_pool.get_ref())
+            .await;
+
+        match result {
+            Ok(res) => {
+                HttpResponse::Ok().body("New Project Inserted to database.")
+            }
+            Err(err) => {
+                eprintln!("Insert New Project Error: {:?}",err);
+                HttpResponse::InternalServerError().finish()
+            }
+        }
+    }
 
 // Get all the listed bug reports
-#[get("/bugs")]
-pub async fn list_bugs(db: web::Data<SqlitePool>) -> impl Responder {
+async fn list_bugs(db: web::Data<SqlitePool>) -> impl Responder {
     let bugs = sqlx::query_as!(
         BugReport,
         r#"
-        SELECT bug_id, developer_id, project_id, bug_description, bug_severity, report_time
-        FROM bugreport
+        SELECT * FROM bugreport
         "#
     )
     .fetch_all(db.get_ref())
@@ -22,18 +74,16 @@ pub async fn list_bugs(db: web::Data<SqlitePool>) -> impl Responder {
 }
 
 // Get bug report by ID
-#[get("/bugs/{id}")]
-pub async fn get_bug(
+async fn get_bug(
     db: web::Data<SqlitePool>,
-    path: web::Path<u64>,
+    path: web::Path<i64>,
 ) -> impl Responder {
     let bug_id = path.into_inner();
 
     let bug = sqlx::query_as!(
         BugReport,
         r#"
-        SELECT bug_id, developer_id, project_id, bug_description, bug_severity, report_time
-        FROM bugreport
+        SELECT * FROM bugreport
         WHERE bug_id = ?
         "#,
         bug_id
@@ -49,16 +99,14 @@ pub async fn get_bug(
 }
 
 // Update bug report of the specified ID
-#[patch("/bugs/{id}")]
-pub async fn update_bug(
+async fn update_bug(
     db: web::Data<SqlitePool>,
-    path: web::Path<u64>,
+    path: web::Path<i64>,
     updates: web::Json<UpdateBugReport>,
 ) -> impl Responder {
     let bug_id = path.into_inner();
 
-    let bug = sqlx::query_as!(
-        BugReport,
+    let bug = sqlx::query_as::<_, BugReport>(
         r#"
         UPDATE bugreport
         SET
@@ -68,13 +116,13 @@ pub async fn update_bug(
             report_time = COALESCE(?, report_time)
         WHERE bug_id = ?
         RETURNING bug_id, developer_id, project_id, bug_description, bug_severity, report_time
-        "#,
-        updates.developer_id,
-        updates.bug_description.as_deref(),
-        updates.bug_severity.as_deref(),
-        updates.report_time.as_deref(),
-        bug_id
+        "#
     )
+    .bind(updates.developer_id)
+    .bind(updates.bug_description.as_deref())
+    .bind(updates.bug_severity.as_deref())
+    .bind(updates.report_time.as_deref())
+    .bind(bug_id)
     .fetch_optional(db.get_ref())
     .await;
 
@@ -86,10 +134,9 @@ pub async fn update_bug(
 }
 
 // Delete Bug report
-#[delete("/bugs/{id}")]
-pub async fn delete_bug(
+async fn delete_bug(
     db: web::Data<SqlitePool>,
-    path: web::Path<u64>,
+    path: web::Path<i64>,
 ) -> impl Responder {
     let bug_id = path.into_inner();
 
