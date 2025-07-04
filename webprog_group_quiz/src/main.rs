@@ -1,7 +1,9 @@
 use actix_web::{App, HttpServer, web};
 use dotenvy::dotenv;
 use tera::Tera;
+use sqlx::sqlite::SqlitePool;
 
+mod auth;
 mod db;
 mod handlers;
 mod models;
@@ -13,13 +15,15 @@ async fn main() -> std::io::Result<()> {
     let tera = Tera::new("templates/**/*").unwrap();
     let db_pool = db::init_db().await;
 
-    println!("🚀 Server running at http://127.0.0.1:8080");
+    println!("Server running at http://127.0.0.1:8080");
 
     HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(tera.clone()))
             .app_data(web::Data::new(db_pool.clone()))
             .configure(handlers::config)
+            .service(handlers::register)
+            .service(handlers::login)
     })
     .bind(("127.0.0.1", 8080))?
     .run()
