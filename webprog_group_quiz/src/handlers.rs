@@ -1,12 +1,12 @@
 use actix_web::{get, post, patch, delete, web, HttpResponse, Responder, Error, HttpMessage};
 use sqlx::SqlitePool;
-use crate::models::{BugReport, NewBugReport, UpdateBugReport,RegisterRequest, LoginResponse,LoginRequest,Project,NewProject};
+use crate::models::{BugReport, NewBugReport, UpdateBugReport,RegisterRequest, LoginResponse,LoginRequest,Project,NewProject,Developer, BugAssignForm};
 use crate::auth::{verify_password, create_jwt, hash_password,validate_jwt};
 use std::collections::HashMap;
 use std::sync::Mutex;
 use crate::db;
 use actix_web_httpauth::extractors::bearer::BearerAuth;
-use tera::Tera;
+use tera::{Tera, Context};
 use crate::auth::Claims;
 use crate::auth_middleware::validator;
 use actix_web::dev::ServiceRequest;
@@ -21,6 +21,11 @@ pub fn config(cfg: &mut web::ServiceConfig) {
                 )
             )
     )
+    )
+    .service(
+        web::resource("/bugs/assign")
+            .route(web::get().to(get_bug_assignment_form))
+            .route(web::post().to(set_bug_assigment_form))
     )
     .service(
         web::resource("/bugs/{id}")
@@ -204,6 +209,44 @@ async fn delete_bug(
         Ok(res) if res.rows_affected() > 0 => HttpResponse::Ok().body("Bug deleted"),
         Ok(_) => HttpResponse::NotFound().body("Bug not found"),
         Err(_) => HttpResponse::InternalServerError().finish(),
+    }
+}
+
+async fn set_bug_assigment_form( _pool: web::Data<SqlitePool>, form:web::Form<BugAssignForm>) -> impl Responder {
+    let assignForm = UpdateBugReport{
+        developer_id: Some(form.developer_id),
+        bug_description:None,
+        bug_severity:None,
+        report_time:None,
+    };
+
+    update_bug(_pool, web::Path::from(form.bug_id), web::Json(assignForm),
+    ).await
+}
+
+async fn get_bug_assignment_form(_pool: web::Data<SqlitePool>, tmpl: web::Data<Tera>) -> impl Responder {
+    let bugs = sqlx::query_as!(BugReport, "SELECT * FROM bugreport")
+        .fetch_all(_pool.get_ref())
+        .await;
+
+    let developers = sqlx::query_as!(Developer, "SELECT * FROM developers")
+        .fetch_all(_pool.get_ref())
+        .await;
+
+    match (bugs, developers) {
+        (Ok(bugs), Ok(devs)) => {
+            let mut ctx = Context::new();
+            ctx.insert("bugs", &bugs);
+            ctx.insert("developers",&devs);
+            tmpl.render("bug_assign_form.html", &ctx)
+                .map(|html| HttpResponse::Ok().content_type("text/html").body(html))
+                .unwrap_or_else(|e| {
+                    eprint!("Template error: {}",e);
+                    HttpResponse::InternalServerError().body("Template error")
+                })
+        }
+
+        _ => HttpResponse::InternalServerError().body("Database load error"),
     }
 }
 

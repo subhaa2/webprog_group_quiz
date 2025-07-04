@@ -28,6 +28,13 @@ pub struct UpdateBugReport {
     pub bug_description: Option<String>,
     pub bug_severity: Option<String>,
     pub report_time: Option<String>, // time of update
+
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BugAssignForm {
+    pub bug_id: i64, 
+    pub developer_id: i64, 
 }
 
 #[derive(Serialize, Deserialize, FromRow, Debug)]
@@ -35,6 +42,14 @@ pub struct Project {
     pub project_id: i64,
     pub project_name: String,
     pub project_description: String
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Developer {
+    pub id: i64,
+    pub username: String,
+    pub password_hash: String,
+    pub role: String,
 }
 
 #[derive(Deserialize)]
