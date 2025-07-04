@@ -4,8 +4,9 @@ use sqlx::FromRow;
 #[derive(Debug, Serialize, Deserialize, FromRow)]
 pub struct BugReport {
     pub bug_id: i64,
-    pub developer_id: i64,
+    pub developer_id: Option<i64>,
     pub project_id: i64,
+    pub bug_title: String,
     pub bug_description: String,
     pub bug_severity: String,
     pub report_time: Option<String>, // optional if letting SQLite auto-fill
@@ -14,8 +15,8 @@ pub struct BugReport {
 // Used when creating a new bug
 #[derive(Debug, Deserialize)]
 pub struct NewBugReport {
-    pub developer_id: i64,
     pub project_id: i64,
+    pub bug_title: String,
     pub bug_description: String,
     pub bug_severity: String,
     pub report_time: Option<String>,
@@ -41,7 +42,8 @@ pub struct BugAssignForm {
 pub struct Project {
     pub project_id: i64,
     pub project_name: String,
-    pub project_description: String
+    pub project_description: String,
+    pub project_status: String,
 }
 
 #[derive(Serialize, Deserialize)]

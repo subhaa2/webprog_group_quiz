@@ -62,10 +62,10 @@ pub async fn create_bug(
     body: web::Json<NewBugReport>
 ) -> impl Responder {
     let result = sqlx::query(
-        "INSERT INTO bugreport (developer_id, project_id, bug_description, bug_severity) VALUES (?, ?, ?, ?)"
+        "INSERT INTO bugreport (project_id, bug_title, bug_description, bug_severity) VALUES (?, ?, ?, ?)"
     )
-    .bind(&body.developer_id)
     .bind(&body.project_id)
+    .bind(&body.bug_title)
     .bind(&body.bug_description)
     .bind(&body.bug_severity)
     .execute(pool.get_ref())
@@ -83,7 +83,7 @@ pub async fn create_bug(
 }
 
 async fn get_projects(_pool: web::Data<SqlitePool>) -> impl Responder {
-    let projects_result = sqlx::query_as::<_,Project>("SELECT project_id, project_name, project_description FROM projects")
+    let projects_result = sqlx::query_as::<_,Project>("SELECT project_id, project_name, project_description FROM projects where project_status = 'active'")
             .fetch_all(_pool.get_ref())
             .await;
 
@@ -122,7 +122,7 @@ async fn list_bugs(db: web::Data<SqlitePool>) -> impl Responder {
     let bugs = sqlx::query_as!(
         BugReport,
         r#"
-        SELECT * FROM bugreport
+        SELECT bug_id, developer_id, project_id, bug_title, bug_description, bug_severity, report_time FROM bugreport
         "#
     )
     .fetch_all(db.get_ref())
@@ -144,7 +144,7 @@ async fn get_bug(
     let bug = sqlx::query_as!(
         BugReport,
         r#"
-        SELECT * FROM bugreport
+        SELECT bug_id, developer_id, project_id, bug_title, bug_description, bug_severity, report_time FROM bugreport
         WHERE bug_id = ?
         "#,
         bug_id
@@ -225,7 +225,7 @@ async fn set_bug_assigment_form( _pool: web::Data<SqlitePool>, form:web::Form<Bu
 }
 
 async fn get_bug_assignment_form(_pool: web::Data<SqlitePool>, tmpl: web::Data<Tera>) -> impl Responder {
-    let bugs = sqlx::query_as!(BugReport, "SELECT * FROM bugreport")
+    let bugs = sqlx::query_as!(BugReport, "SELECT bug_id, developer_id, project_id, bug_title, bug_description, bug_severity, report_time FROM bugreport")
         .fetch_all(_pool.get_ref())
         .await;
 
