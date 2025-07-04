@@ -33,7 +33,7 @@ pub async fn create_bug(
     body: web::Json<NewBugReport>
 ) -> impl Responder {
     let result = sqlx::query(
-        "INSERT INTO bugs (developer_id, project_id, bug_description, bug_severity, report_time) VALUES (?, ?, ?, ?, ?)"
+        "INSERT INTO bugreport (developer_id, project_id, bug_description, bug_severity, report_time) VALUES (?, ?, ?, ?, ?)"
     )
     .bind(&body.developer_id)
     .bind(&body.project_id)
