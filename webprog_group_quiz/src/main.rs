@@ -1,8 +1,10 @@
 use actix_web::{App, HttpServer, web};
-use actix_web_httpauth::middleware::HttpAuthentication;
 use dotenvy::dotenv;
 use tera::Tera;
 use sqlx::sqlite::SqlitePool;
+use actix_session::config::CookieContentSecurity;
+use actix_session::{SessionMiddleware, storage::CookieSessionStore};
+use actix_web::cookie::Key;
 
 mod auth;
 mod auth_middleware;
@@ -19,22 +21,27 @@ async fn main() -> std::io::Result<()> {
 
     println!("Server running at http://127.0.0.1:8080");
 
+    let secret_key = Key::generate();
     HttpServer::new(move || {
-        let auth = HttpAuthentication::bearer(auth_middleware::validator);
         
         App::new()
             .app_data(web::Data::new(tera.clone()))
             .app_data(web::Data::new(db_pool.clone()))
+            .wrap(SessionMiddleware::new(
+            CookieSessionStore::default(),
+            secret_key.clone(),
+            ))
             .service(
                 web::scope("/api")
                     .configure(handlers::config)
-                    .wrap(auth)
             )
             .service(
                 web::scope("")
                     .service(handlers::register)
                     .service(handlers::login)
+                    .service(handlers::whoami)
             )
+
     })
     .bind(("127.0.0.1", 8080))?
     .run()

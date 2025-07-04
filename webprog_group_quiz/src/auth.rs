@@ -1,17 +1,17 @@
-use jsonwebtoken::{encode, decode, Header, EncodingKey, DecodingKey, Validation};
 use serde::{Deserialize, Serialize};
-use chrono::{Utc, Duration};
 use sha2::{Sha256, Digest};
+use actix_session::Session;
+use actix_web::HttpResponse;
+
 
 const SALT: &str = "bugtrack2025";
-const JWT_SECRET: &str = "your_very_secret_key"; // Change this to a strong secret!
-const JWT_EXPIRATION_HOURS: i64 = 24;
+
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Claims {
     pub sub: String,  
     pub exp: usize,   
-    pub role: String, 
+    pub role: String,   
 }
 
 // Password hashing remains the same
@@ -26,30 +26,10 @@ pub fn verify_password(input_password: &str, expected_hash: &str) -> bool {
     hash_password(input_password) == expected_hash
 }
 
-// New JWT functions
-pub fn create_jwt(username: &str, role: &str) -> Result<String, jsonwebtoken::errors::Error> {
-    let expiration = Utc::now()
-        .checked_add_signed(Duration::hours(JWT_EXPIRATION_HOURS))
-        .expect("Invalid timestamp")
-        .timestamp();
 
-    let claims = Claims {
-        sub: username.to_owned(),
-        exp: expiration as usize,
-        role: role.to_string(),
-    };
-
-    encode(
-        &Header::default(),
-        &claims,
-        &EncodingKey::from_secret(JWT_SECRET.as_ref()),
-    )
-}
-
-pub fn validate_jwt(token: &str) -> Result<Claims, jsonwebtoken::errors::Error> {
-    decode::<Claims>(
-        token,
-        &DecodingKey::from_secret(JWT_SECRET.as_ref()),
-        &Validation::default(),
-    ).map(|data| data.claims)
+// Store user login data in session
+pub fn store_user_session(session: &Session, username: &str, role: &str) -> Result<(), actix_web::Error> {
+    session.insert("username", username)?;
+    session.insert("role", role)?;
+    Ok(())
 }

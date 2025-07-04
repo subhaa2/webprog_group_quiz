@@ -68,7 +68,7 @@ pub struct LoginRequest {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct LoginResponse {
     pub status: String,
-    pub token: Option<String>, 
+    pub message: Option<String>,  // optional human-friendly message
 }
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RegisterRequest {

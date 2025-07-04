@@ -1,25 +1,20 @@
 use actix_web::{get, post, patch, delete, web, HttpResponse, Responder, Error, HttpMessage};
 use sqlx::SqlitePool;
 use crate::models::{BugReport, NewBugReport, UpdateBugReport,RegisterRequest, LoginResponse,LoginRequest,Project,NewProject,Developer, BugAssignForm};
-use crate::auth::{verify_password, create_jwt, hash_password,validate_jwt};
 use std::collections::HashMap;
 use std::sync::Mutex;
 use crate::db;
-use actix_web_httpauth::extractors::bearer::BearerAuth;
-use tera::{Tera, Context};
-use crate::auth::Claims;
-use crate::auth_middleware::validator;
+use tera::Tera;
+use tera::Context;
 use actix_web::dev::ServiceRequest;
+use crate::auth::{verify_password, hash_password, store_user_session};
+use actix_session::Session;
 
 pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::resource("/projects")
             .route(web::get().to(get_projects))
-            .route(web::post().to(add_project).wrap(
-                actix_web::middleware::Compat::new(
-                    actix_web_httpauth::middleware::HttpAuthentication::bearer(admin_validator)
-                )
-            )
+            .route(web::post().to(add_project)
     )
     )
     .service(
@@ -42,30 +37,17 @@ pub fn config(cfg: &mut web::ServiceConfig) {
     .service(login);
 }
 
-async fn admin_validator(
-    req: ServiceRequest,
-    credentials: BearerAuth,
-) -> Result<ServiceRequest, (Error, ServiceRequest)> {
-    let token = credentials.token();
-    match validate_jwt(token) {
-        Ok(claims) if claims.role == "admin" => {
-            req.extensions_mut().insert(claims);
-            Ok(req)
-        }
-        Ok(_) => Err((actix_web::error::ErrorForbidden("Admin access required"), req)),
-        Err(_) => Err((actix_web::error::ErrorUnauthorized("Invalid token"), req)),
-    }
-}
+
 
 pub async fn create_bug(
     pool: web::Data<SqlitePool>,
     body: web::Json<NewBugReport>
 ) -> impl Responder {
     let result = sqlx::query(
-        "INSERT INTO bugreport (project_id, bug_title, bug_description, bug_severity) VALUES (?, ?, ?, ?)"
+        "INSERT INTO bugreport (developer_id, project_id, bug_description, bug_severity) VALUES (?, ?, ?, ?)"
     )
+    .bind(&body.developer_id)
     .bind(&body.project_id)
-    .bind(&body.bug_title)
     .bind(&body.bug_description)
     .bind(&body.bug_severity)
     .execute(pool.get_ref())
@@ -83,7 +65,7 @@ pub async fn create_bug(
 }
 
 async fn get_projects(_pool: web::Data<SqlitePool>) -> impl Responder {
-    let projects_result = sqlx::query_as::<_,Project>("SELECT project_id, project_name, project_description FROM projects where project_status = 'active'")
+    let projects_result = sqlx::query_as::<_,Project>("SELECT project_id, project_name, project_description FROM projects")
             .fetch_all(_pool.get_ref())
             .await;
 
@@ -96,9 +78,17 @@ async fn get_projects(_pool: web::Data<SqlitePool>) -> impl Responder {
     }
 }
 
-async fn add_project(_pool: web::Data<SqlitePool>, _body: web::Json<NewProject>) -> impl Responder {
+async fn add_project(_pool: web::Data<SqlitePool>, _body: web::Json<NewProject>, session: Session,) -> impl Responder {
     let new_project_name = &_body.name;
     let new_project_descripton = &_body.description;
+
+    if let Some(role) = session.get::<String>("role").unwrap_or(None) {
+        if role != "admin" {
+            return HttpResponse::Forbidden().body("Admin access only");
+        }
+    } else {
+        return HttpResponse::Unauthorized().body("Please log in");
+    }
 
     let result = sqlx::query("INSERT INTO projects (project_name, project_description) VALUES (?, ?)")
             .bind(new_project_name)
@@ -225,7 +215,7 @@ async fn set_bug_assigment_form( _pool: web::Data<SqlitePool>, form:web::Form<Bu
 }
 
 async fn get_bug_assignment_form(_pool: web::Data<SqlitePool>, tmpl: web::Data<Tera>) -> impl Responder {
-    let bugs = sqlx::query_as!(BugReport, "SELECT bug_id, developer_id, project_id, bug_title, bug_description, bug_severity, report_time FROM bugreport")
+    let bugs = sqlx::query_as!(BugReport, "SELECT * FROM bugreport")
         .fetch_all(_pool.get_ref())
         .await;
 
@@ -287,6 +277,7 @@ pub async fn register(
 pub async fn login(
     db: web::Data<sqlx::SqlitePool>,
     req: web::Json<LoginRequest>,
+    session: Session,
 ) -> impl Responder {
     // Get user from database
     let user = match sqlx::query!(
@@ -302,23 +293,43 @@ pub async fn login(
     match user {
         Some(user) => {
             if verify_password(&req.password, &user.password_hash) {
-                match create_jwt(&req.username, &user.role) {
-                    Ok(token) => HttpResponse::Ok().json(LoginResponse {
-                        status: "success".to_string(),
-                        token: Some(token),
-                    }),
-                    Err(_) => HttpResponse::InternalServerError().json("Failed to generate token"),
+                // ✅ Store session data
+                if let Err(e) = store_user_session(&session, &req.username, &user.role) {
+                    return HttpResponse::InternalServerError().body("Session error");
+                    println!("Session set: username={}, role={}", req.username, user.role);
+
                 }
+
+                HttpResponse::Ok().json(LoginResponse {
+                    status: "success".to_string(),
+                    message: Some("Login successful".to_string()),
+                    
+                })
             } else {
                 HttpResponse::Unauthorized().json(LoginResponse {
                     status: "failure".to_string(),
-                    token: None,
+                    message: Some("Login unsuccessful".to_string()),
                 })
             }
         }
         None => HttpResponse::Unauthorized().json(LoginResponse {
             status: "failure".to_string(),
-            token: None,
+            message: Some("Login unsuccessful".to_string()),
         }),
+    }
+}
+
+#[get("/logout")]
+pub async fn logout(session: Session) -> impl Responder {
+    session.purge();
+    HttpResponse::Ok().body("You have been logged out.")
+}
+
+#[get("/whoami")]
+pub async fn whoami(session: actix_session::Session) -> impl actix_web::Responder {
+    if let Some(username) = session.get::<String>("username").unwrap_or(None) {
+        format!("Logged in as: {}", username)
+    } else {
+        "Not logged in.".to_string()
     }
 }
