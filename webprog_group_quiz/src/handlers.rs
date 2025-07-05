@@ -54,23 +54,27 @@ pub fn config(cfg: &mut web::ServiceConfig) {
 
 pub async fn create_bug(
     pool: web::Data<SqlitePool>,
-    body: web::Json<NewBugReport>
+    body: web::Json<NewBugReport>,
+    session: Session,
 ) -> impl Responder {
+    let creator_id = match session.get::<i64>("user_id") {
+        Ok(Some(id)) => id,
+        _ => return HttpResponse::Unauthorized().body("Not logged in"),
+    };
+
     let result = sqlx::query(
-        "INSERT INTO bugreport (project_id, bug_title, bug_description, bug_severity,assignee_id) VALUES (?, ?, ?, ?,?)"
+        "INSERT INTO bugreport (project_id, bug_title, bug_description, bug_severity, creator_id) VALUES (?, ?, ?, ?, ?)"
     )
     .bind(&body.project_id)
     .bind(&body.bug_title)
     .bind(&body.bug_description)
     .bind(&body.bug_severity)
-    .bind(&body.assignee_id)
+    .bind(creator_id)
     .execute(pool.get_ref())
     .await;
 
     match result {
-        Ok(res) => {
-            HttpResponse::Ok().body(format!("New bug inserted with ID: {}", res.last_insert_rowid()))
-        },
+        Ok(res) => HttpResponse::Ok().body(format!("New bug inserted with ID: {}", res.last_insert_rowid())),
         Err(err) => {
             eprintln!("Insert Bug Error: {:?}", err);
             HttpResponse::InternalServerError().finish()
@@ -167,7 +171,7 @@ async fn list_bugs(db: web::Data<SqlitePool>) -> impl Responder {
     let bugs = sqlx::query_as!(
         BugReport,
         r#"
-        SELECT bug_id, assignee_id, project_id, bug_title, bug_description, bug_severity, report_time FROM bugreport
+        SELECT bug_id, creator_id, assignee_id, assigned_by, project_id, bug_title, bug_description, bug_severity, report_time FROM bugreport
         "#
     )
     .fetch_all(db.get_ref())
@@ -189,7 +193,7 @@ async fn get_bug(
     let bug = sqlx::query_as!(
         BugReport,
         r#"
-        SELECT bug_id, assignee_id, project_id, bug_title, bug_description, bug_severity, report_time FROM bugreport
+        SELECT bug_id, creator_id, assignee_id, assigned_by, project_id, bug_title, bug_description, bug_severity, report_time FROM bugreport
         WHERE bug_id = ?
         "#,
         bug_id
@@ -216,15 +220,13 @@ async fn update_bug(
         r#"
         UPDATE bugreport
         SET
-            assignee_id = COALESCE(?, assignee_id),
             bug_description = COALESCE(?, bug_description),
             bug_severity = COALESCE(?, bug_severity),
             report_time = COALESCE(?, report_time)
         WHERE bug_id = ?
-        RETURNING bug_id, assignee_id, project_id, bug_title, bug_description, bug_severity, report_time
+        RETURNING bug_id, project_id, bug_title, bug_description, bug_severity, report_time, creator_id, assignee_id, assigned_by
         "#
     )
-    .bind(updates.assignee_id)
     .bind(updates.bug_description.as_deref())
     .bind(updates.bug_severity.as_deref())
     .bind(updates.report_time.as_deref())
@@ -265,9 +267,13 @@ async fn set_bug_assigment_form(
     form: web::Form<BugAssignForm>,
     session: Session,
 ) -> impl Responder {
-    // Get current user's role
+    // Get current user's role and id
     let current_role = match session.get::<String>("role") {
         Ok(Some(role)) => role,
+        _ => return HttpResponse::Unauthorized().body("Not logged in"),
+    };
+    let assigned_by = match session.get::<i64>("user_id") {
+        Ok(Some(id)) => id,
         _ => return HttpResponse::Unauthorized().body("Not logged in"),
     };
 
@@ -303,16 +309,21 @@ async fn set_bug_assigment_form(
         Err(_) => return HttpResponse::InternalServerError().finish(),
     }
 
-    // Proceed with assignment
-    let assign_form = UpdateBugReport {
-        assignee_id: Some(form.assignee_id),
-        bug_description: None,
-        bug_severity: None,
-        report_time: None,
-    };
+    // Proceed with assignment: set assignee_id and assigned_by
+    let result = sqlx::query!(
+        "UPDATE bugreport SET assignee_id = ?, assigned_by = ? WHERE bug_id = ?",
+        form.assignee_id,
+        assigned_by,
+        form.bug_id
+    )
+    .execute(_pool.get_ref())
+    .await;
 
-    // Await the update_bug response and return it directly
-    update_bug(_pool, web::Path::from(form.bug_id), web::Json(assign_form)).await
+    match result {
+        Ok(res) if res.rows_affected() > 0 => HttpResponse::Ok().body("Bug assigned"),
+        Ok(_) => HttpResponse::NotFound().body("Bug not found"),
+        Err(_) => HttpResponse::InternalServerError().finish(),
+    }
 }
 
 
@@ -321,7 +332,7 @@ async fn get_bug_assignment_form(
     tmpl: web::Data<Tera>,
     session: Session,
 ) -> impl Responder {
-    let bugs = sqlx::query_as!(BugReport, "SELECT bug_id, assignee_id, project_id, bug_title, bug_description, bug_severity, report_time FROM bugreport")
+    let bugs = sqlx::query_as!(BugReport, "SELECT bug_id, creator_id, assignee_id, assigned_by,project_id, bug_title, bug_description, bug_severity, report_time FROM bugreport")
         .fetch_all(_pool.get_ref())
         .await;
     let users = sqlx::query_as!(User, "SELECT * FROM users")

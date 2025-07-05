@@ -4,12 +4,14 @@ use sqlx::FromRow;
 #[derive(Debug, Serialize, Deserialize, FromRow)]
 pub struct BugReport {
     pub bug_id: i64,
+    pub creator_id: i64 ,
     pub assignee_id: Option<i64>,
+    pub assigned_by: Option<i64>,
     pub project_id: i64,
     pub bug_title: String,
     pub bug_description: String,
     pub bug_severity: String,
-    pub report_time: Option<String>, // optional if letting SQLite auto-fill
+    pub report_time: Option<String>,
 }
 // Used when creating a new bug
 #[derive(Debug, Deserialize)]
@@ -18,7 +20,6 @@ pub struct NewBugReport {
     pub bug_title: String,
     pub bug_description: String,
     pub bug_severity: String,
-    pub assignee_id: i64,
     pub report_time: Option<String>,
 }
 

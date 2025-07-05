@@ -1,6 +1,6 @@
-
 <!DOCTYPE html>
 <html>
+
 <head>
     <meta charset="UTF-8">
     <title>Assign Bug to Developer</title>
@@ -10,23 +10,28 @@
             padding: 2rem;
             background-color: #f9f9f9;
         }
+
         form {
             background: white;
             padding: 1.5rem;
             border-radius: 8px;
             max-width: 500px;
             margin: auto;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
         }
+
         label {
             display: block;
             margin: 0.5rem 0 0.2rem;
         }
-        input, select {
+
+        input,
+        select {
             width: 100%;
             padding: 0.5rem;
             margin-bottom: 1rem;
         }
+
         button {
             padding: 0.6rem 1.2rem;
             background-color: #007acc;
@@ -35,6 +40,7 @@
             border-radius: 5px;
             cursor: pointer;
         }
+
         .error {
             color: red;
             font-weight: bold;
@@ -42,42 +48,91 @@
         }
     </style>
 </head>
+
 <body>
     <h1>Assign Bug to Developer</h1>
     {% if error %}
-        <div class="error">{{ error }}</div>
+    <div class="error">{{ error }}</div>
     {% endif %}
     <form method="post" action="/api/bugs/assign">
         <label for="bug_id">Bug:</label>
         <select name="bug_id" id="bug_id">
-          {% for bug in bugs %}
+            {% for bug in bugs %}
             <option value="{{ bug.bug_id }}">{{ bug.bug_title }}</option>
-          {% endfor %}
+            {% endfor %}
         </select>
-      
+
         <label for="assignee_id">Assign to:</label>
         <select name="assignee_id" id="assignee_id">
             {% for user in users %}
-              {% if current_user_role == "admin" %}
-                <!-- Admin can assign only to developers -->
-                {% if user.role == "developer" %}
-                  <option value="{{ user.id }}">{{ user.username }}</option>
-                {% endif %}
-              {% elif current_user_role == "qa" %}
-                <!-- QA can assign only to developers, not to themselves or other QAs -->
-                {% if user.role == "developer" and user.id != current_user_id %}
-                  <option value="{{ user.id }}">{{ user.username }}</option>
-                {% endif %}
-              {% elif current_user_role == "developer" %}
-                <!-- Developer can assign only to themselves, not to QAs -->
-                {% if user.id == current_user_id %}
-                  <option value="{{ user.id }}">{{ user.username }}</option>
-                {% endif %}
-              {% endif %}
+            {% if current_user_role == "admin" %}
+            <!-- Admin can assign only to developers -->
+            {% if user.role == "developer" %}
+            <option value="{{ user.id }}">{{ user.username }}</option>
+            {% endif %}
+            {% elif current_user_role == "qa" %}
+            <!-- QA can assign only to developers, not to themselves or other QAs -->
+            {% if user.role == "developer" and user.id != current_user_id %}
+            <option value="{{ user.id }}">{{ user.username }}</option>
+            {% endif %}
+            {% elif current_user_role == "developer" %}
+            <!-- Developer can assign only to themselves, not to QAs -->
+            {% if user.id == current_user_id %}
+            <option value="{{ user.id }}">{{ user.username }}</option>
+            {% endif %}
+            {% endif %}
             {% endfor %}
-          </select>
-      
+        </select>
+
         <button type="submit">Assign</button>
     </form>
+
+    <h2>Current Bug Assignments</h2>
+    <table border="1" cellpadding="6" style="margin-top:2rem; background:white;">
+        <tr>
+            <th>Bug Title</th>
+            <th>Created By</th>
+            <th>Assigned To</th>
+            <th>Assigned By</th>
+        </tr>
+        {% for bug in bugs %}
+        <tr>
+            <td>{{ bug.bug_title }}</td>
+            <td>
+                {% set creator = users | filter(attribute="id", value=bug.creator_id) | first %}
+                {% if creator %}
+                {{ creator.username }}
+                {% else %}
+                {{ bug.creator_id }}
+                {% endif %}
+            </td>
+            <td>
+                {% if bug.assignee_id %}
+                {% set assignee = users | filter(attribute="id", value=bug.assignee_id) | first %}
+                {% if assignee %}
+                {{ assignee.username }}
+                {% else %}
+                {{ bug.assignee_id }}
+                {% endif %}
+                {% else %}
+                <em>Unassigned</em>
+                {% endif %}
+            </td>
+            <td>
+                {% if bug.assigned_by %}
+                {% set assigner = users | filter(attribute="id", value=bug.assigned_by) | first %}
+                {% if assigner %}
+                {{ assigner.username }}
+                {% else %}
+                {{ bug.assigned_by }}
+                {% endif %}
+                {% else %}
+                <em>Never assigned</em>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
 </body>
+
 </html>
