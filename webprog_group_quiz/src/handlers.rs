@@ -1,6 +1,6 @@
-use actix_web::{get, post, patch, delete, web, HttpResponse, Responder, Error, HttpMessage};
+use actix_web::{get, post, patch, delete, web, HttpResponse, Responder, Error, HttpMessage,HttpRequest};
 use sqlx::SqlitePool;
-use crate::models::{BugAssignForm, BugReport, CloseProjectForm, Developer, LoginRequest, LoginResponse, NewBugReport, NewProject, Project, RegisterRequest, UpdateBugReport};
+use crate::models::{BugAssignForm, BugReport, CloseProjectForm, LoginRequest, LoginResponse, NewBugReport, NewProject, Project, RegisterRequest, UpdateBugReport, User};
 use std::collections::HashMap;
 use std::result;
 use std::sync::Mutex;
@@ -9,6 +9,15 @@ use tera::{Tera, Context};
 use actix_web::dev::ServiceRequest;
 use crate::auth::{verify_password, hash_password, store_user_session};
 use actix_session::Session;
+
+//to check role
+fn check_role(session: &Session, required_role: &str) -> bool {
+    if let Ok(Some(role)) = session.get::<String>("role") {
+        role == required_role || role == "admin"
+    } else {
+        false
+    }
+}
 
 pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.service(
@@ -48,12 +57,13 @@ pub async fn create_bug(
     body: web::Json<NewBugReport>
 ) -> impl Responder {
     let result = sqlx::query(
-        "INSERT INTO bugreport (project_id, bug_title, bug_description, bug_severity) VALUES (?, ?, ?, ?)"
+        "INSERT INTO bugreport (project_id, bug_title, bug_description, bug_severity,assignee_id) VALUES (?, ?, ?, ?,?)"
     )
     .bind(&body.project_id)
     .bind(&body.bug_title)
     .bind(&body.bug_description)
     .bind(&body.bug_severity)
+    .bind(&body.assignee_id)
     .execute(pool.get_ref())
     .await;
 
@@ -82,18 +92,17 @@ async fn get_projects(_pool: web::Data<SqlitePool>) -> impl Responder {
     }
 }
 
-async fn add_project(_pool: web::Data<SqlitePool>, _body: web::Json<NewProject>, session: Session,) -> impl Responder {
-    let new_project_name = &_body.name;
-    let new_project_descripton = &_body.description;
-
-    if let Some(role) = session.get::<String>("role").unwrap_or(None) {
-        if role != "admin" {
-            return HttpResponse::Forbidden().body("Admin access only");
-        }
-    } else {
-        return HttpResponse::Unauthorized().body("Please log in");
+async fn add_project(
+    _pool: web::Data<SqlitePool>,
+    _body: web::Json<NewProject>,
+    session: Session,
+) -> impl Responder {
+    if !check_role(&session, "admin") {
+        return HttpResponse::Forbidden().body("Admin access required");
     }
 
+    let new_project_name = &_body.name;
+    let new_project_descripton = &_body.description;
     let result = sqlx::query("INSERT INTO projects (project_name, project_description) VALUES (?, ?)")
             .bind(new_project_name)
             .bind(new_project_descripton)
@@ -158,7 +167,7 @@ async fn list_bugs(db: web::Data<SqlitePool>) -> impl Responder {
     let bugs = sqlx::query_as!(
         BugReport,
         r#"
-        SELECT bug_id, developer_id, project_id, bug_title, bug_description, bug_severity, report_time FROM bugreport
+        SELECT bug_id, assignee_id, project_id, bug_title, bug_description, bug_severity, report_time FROM bugreport
         "#
     )
     .fetch_all(db.get_ref())
@@ -180,7 +189,7 @@ async fn get_bug(
     let bug = sqlx::query_as!(
         BugReport,
         r#"
-        SELECT bug_id, developer_id, project_id, bug_title, bug_description, bug_severity, report_time FROM bugreport
+        SELECT bug_id, assignee_id, project_id, bug_title, bug_description, bug_severity, report_time FROM bugreport
         WHERE bug_id = ?
         "#,
         bug_id
@@ -200,22 +209,22 @@ async fn update_bug(
     db: web::Data<SqlitePool>,
     path: web::Path<i64>,
     updates: web::Json<UpdateBugReport>,
-) -> impl Responder {
+) -> HttpResponse {
     let bug_id = path.into_inner();
 
     let bug = sqlx::query_as::<_, BugReport>(
         r#"
         UPDATE bugreport
         SET
-            developer_id = COALESCE(?, developer_id),
+            assignee_id = COALESCE(?, assignee_id),
             bug_description = COALESCE(?, bug_description),
             bug_severity = COALESCE(?, bug_severity),
             report_time = COALESCE(?, report_time)
         WHERE bug_id = ?
-        RETURNING bug_id, developer_id, project_id, bug_description, bug_severity, report_time
+        RETURNING bug_id, assignee_id, project_id, bug_title, bug_description, bug_severity, report_time
         "#
     )
-    .bind(updates.developer_id)
+    .bind(updates.assignee_id)
     .bind(updates.bug_description.as_deref())
     .bind(updates.bug_severity.as_deref())
     .bind(updates.report_time.as_deref())
@@ -226,7 +235,10 @@ async fn update_bug(
     match bug {
         Ok(Some(updated)) => HttpResponse::Ok().json(updated),
         Ok(None) => HttpResponse::NotFound().body("Bug not found"),
-        Err(_) => HttpResponse::InternalServerError().finish(),
+        Err(e) => {
+            eprintln!("Database error: {:?}", e);
+            HttpResponse::InternalServerError().finish()
+        },
     }
 }
 
@@ -248,65 +260,128 @@ async fn delete_bug(
     }
 }
 
-async fn set_bug_assigment_form( _pool: web::Data<SqlitePool>, form:web::Form<BugAssignForm>) -> impl Responder {
-    let assignForm = UpdateBugReport{
-        developer_id: Some(form.developer_id),
-        bug_description:None,
-        bug_severity:None,
-        report_time:None,
+async fn set_bug_assigment_form(
+    _pool: web::Data<SqlitePool>,
+    form: web::Form<BugAssignForm>,
+    session: Session,
+) -> impl Responder {
+    // Get current user's role
+    let current_role = match session.get::<String>("role") {
+        Ok(Some(role)) => role,
+        _ => return HttpResponse::Unauthorized().body("Not logged in"),
     };
 
-    update_bug(_pool, web::Path::from(form.bug_id), web::Json(assignForm),
-    ).await
+    // Check if assignee is a developer
+    let assignee = sqlx::query_as!(
+        User,
+        "SELECT id, username, password_hash, role FROM users WHERE id = ?",
+        form.assignee_id
+    )
+    .fetch_optional(_pool.get_ref())
+    .await;
+
+    match assignee {
+        Ok(Some(user)) => {
+            // QA can't assign to themselves or other QAs
+            if current_role == "qa" {
+                if user.role == "qa" {
+                    return HttpResponse::Forbidden().body("QA cannot assign bugs to other QAs");
+                }
+                if let Ok(Some(current_user_id)) = session.get::<i64>("user_id") {
+                    if form.assignee_id == current_user_id {
+                        return HttpResponse::Forbidden().body("QA cannot assign bugs to themselves");
+                    }
+                }
+            }
+
+            // Only allow assigning to developers
+            if user.role != "developer" {
+                return HttpResponse::Forbidden().body("Can only assign bugs to developers");
+            }
+        }
+        Ok(None) => return HttpResponse::NotFound().body("Assignee not found"),
+        Err(_) => return HttpResponse::InternalServerError().finish(),
+    }
+
+    // Proceed with assignment
+    let assign_form = UpdateBugReport {
+        assignee_id: Some(form.assignee_id),
+        bug_description: None,
+        bug_severity: None,
+        report_time: None,
+    };
+
+    // Await the update_bug response and return it directly
+    update_bug(_pool, web::Path::from(form.bug_id), web::Json(assign_form)).await
 }
 
-async fn get_bug_assignment_form(_pool: web::Data<SqlitePool>, tmpl: web::Data<Tera>) -> impl Responder {
-    let bugs = sqlx::query_as!(BugReport, "SELECT * FROM bugreport")
+
+async fn get_bug_assignment_form(
+    _pool: web::Data<SqlitePool>,
+    tmpl: web::Data<Tera>,
+    session: Session,
+) -> impl Responder {
+    let bugs = sqlx::query_as!(BugReport, "SELECT bug_id, assignee_id, project_id, bug_title, bug_description, bug_severity, report_time FROM bugreport")
         .fetch_all(_pool.get_ref())
         .await;
-
-    let developers = sqlx::query_as!(Developer, "SELECT * FROM developers")
+    let users = sqlx::query_as!(User, "SELECT * FROM users")
         .fetch_all(_pool.get_ref())
         .await;
-
-    match (bugs, developers) {
-        (Ok(bugs), Ok(devs)) => {
+    match (bugs, users) {
+        (Ok(bugs), Ok(users)) => {
             let mut ctx = Context::new();
             ctx.insert("bugs", &bugs);
-            ctx.insert("developers",&devs);
+            ctx.insert("users", &users);
+            let current_user_role = session.get::<String>("role").unwrap_or(None).unwrap_or_default();
+            let current_user_id = session.get::<i64>("user_id").unwrap_or(None).unwrap_or_default();
+            ctx.insert("current_user_role", &current_user_role);
+            ctx.insert("current_user_id", &current_user_id);
             tmpl.render("bug_assign_form.html", &ctx)
                 .map(|html| HttpResponse::Ok().content_type("text/html").body(html))
                 .unwrap_or_else(|e| {
-                    eprint!("Template error: {}",e);
+                    eprint!("Template error: {}", e);
                     HttpResponse::InternalServerError().body("Template error")
                 })
         }
-
         _ => HttpResponse::InternalServerError().body("Database load error"),
     }
 }
+
 
 #[post("/register")]
 pub async fn register(
     db: web::Data<SqlitePool>,
     req: web::Json<RegisterRequest>,
 ) -> impl Responder {
-    // Hash the password
     let hashed_password = hash_password(&req.password);
-    
-    // Store user in database
+
+    // Check if any users exist
+    let user_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users")
+        .fetch_one(db.get_ref())
+        .await
+        .unwrap_or((0,));
+
+    let role = if user_count.0 == 0 {
+        "admin".to_string()
+    } else {
+        match req.role.as_deref() {
+            Some("qa") => "qa".to_string(),
+            _ => "developer".to_string(), // default to developer if not specified or invalid
+        }
+    };
+
     let result = sqlx::query!(
         r#"
-        INSERT INTO developers (username, password_hash, role)
+        INSERT INTO users (username, password_hash, role)
         VALUES (?, ?, ?)
         "#,
         req.username,
         hashed_password,
-        "admin" // Default role
+        role
     )
     .execute(db.get_ref())
     .await;
-    
+
     match result {
         Ok(_) => HttpResponse::Ok().json("Registration successful"),
         Err(e) => {
@@ -325,42 +400,41 @@ pub async fn login(
     req: web::Json<LoginRequest>,
     session: Session,
 ) -> impl Responder {
-    // Get user from database
-    let user = match sqlx::query!(
-        r#"SELECT password_hash, role FROM developers WHERE username = ?"#,
+    let user = match sqlx::query_as!(
+        User,
+        r#"SELECT id, username, password_hash, role FROM users WHERE username = ?"#,
         req.username
     )
     .fetch_optional(db.get_ref())
     .await {
         Ok(user) => user,
-        Err(_) => return HttpResponse::InternalServerError().finish(),
+        Err(e) => {
+            eprintln!("Database error: {:?}", e);
+            return HttpResponse::InternalServerError().finish();
+        }
     };
 
     match user {
         Some(user) => {
             if verify_password(&req.password, &user.password_hash) {
-                // ✅ Store session data
-                if let Err(e) = store_user_session(&session, &req.username, &user.role) {
-                    return HttpResponse::InternalServerError().body("Session error");
-                    println!("Session set: username={}, role={}", req.username, user.role);
-
-                }
+                session.insert("username", &user.username).unwrap();
+                session.insert("role", &user.role).unwrap();
+                session.insert("user_id", user.id).unwrap();
 
                 HttpResponse::Ok().json(LoginResponse {
                     status: "success".to_string(),
                     message: Some("Login successful".to_string()),
-                    
                 })
             } else {
                 HttpResponse::Unauthorized().json(LoginResponse {
                     status: "failure".to_string(),
-                    message: Some("Login unsuccessful".to_string()),
+                    message: Some("Invalid credentials".to_string()),
                 })
             }
         }
         None => HttpResponse::Unauthorized().json(LoginResponse {
             status: "failure".to_string(),
-            message: Some("Login unsuccessful".to_string()),
+            message: Some("User not found".to_string()),
         }),
     }
 }
@@ -378,6 +452,7 @@ pub async fn login_page(tmpl: web::Data<tera::Tera>) -> impl Responder {
         }
     }
 }
+
 
 #[get("/logout")]
 pub async fn logout(session: Session) -> impl Responder {

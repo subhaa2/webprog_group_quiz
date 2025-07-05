@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html>
 <head>
@@ -43,31 +44,40 @@
 </head>
 <body>
     <h1>Assign Bug to Developer</h1>
-
     {% if error %}
         <div class="error">{{ error }}</div>
     {% endif %}
-
-    <form action="/bugs/assign" method="post">
-        <label for="bug_id">Bug ID:</label>
-        <select name="bug_id" id="bug_id" required>
-            {% for bug in bugs %}
-                <option value="{{ bug.bug_id }}">
-                    #{{ bug.bug_id }} - {{ bug.bug_description | truncate(length=50) }}
-                </option>
-            {% endfor %}
+    <form method="post" action="/api/bugs/assign">
+        <label for="bug_id">Bug:</label>
+        <select name="bug_id" id="bug_id">
+          {% for bug in bugs %}
+            <option value="{{ bug.bug_id }}">{{ bug.bug_title }}</option>
+          {% endfor %}
         </select>
-
-        <label for="developer_id">Developer ID:</label>
-        <select name="developer_id" id="developer_id" required>
-            {% for dev in developers %}
-                <option value="{{ dev.id }}">
-                    #{{ dev.id }} - {{ dev.username }}
-                </option>
+      
+        <label for="assignee_id">Assign to:</label>
+        <select name="assignee_id" id="assignee_id">
+            {% for user in users %}
+              {% if current_user_role == "admin" %}
+                <!-- Admin can assign only to developers -->
+                {% if user.role == "developer" %}
+                  <option value="{{ user.id }}">{{ user.username }}</option>
+                {% endif %}
+              {% elif current_user_role == "qa" %}
+                <!-- QA can assign only to developers, not to themselves or other QAs -->
+                {% if user.role == "developer" and user.id != current_user_id %}
+                  <option value="{{ user.id }}">{{ user.username }}</option>
+                {% endif %}
+              {% elif current_user_role == "developer" %}
+                <!-- Developer can assign only to themselves, not to QAs -->
+                {% if user.id == current_user_id %}
+                  <option value="{{ user.id }}">{{ user.username }}</option>
+                {% endif %}
+              {% endif %}
             {% endfor %}
-        </select>
-
-        <button type="submit">Assign Bug</button>
+          </select>
+      
+        <button type="submit">Assign</button>
     </form>
 </body>
 </html>
