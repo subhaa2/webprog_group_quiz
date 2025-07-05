@@ -1,13 +1,8 @@
-use actix_web::{get, post, patch, delete, web, HttpResponse, Responder, Error, HttpMessage,HttpRequest};
+use actix_web::{get, post, web, HttpResponse, Responder};
 use sqlx::SqlitePool;
 use crate::models::{BugAssignForm, BugReport, CloseProjectForm, LoginRequest, LoginResponse, NewBugReport, NewProject, Project, RegisterRequest, UpdateBugReport, User};
-use std::collections::HashMap;
-use std::result;
-use std::sync::Mutex;
-use crate::db;
 use tera::{Tera, Context};  
-use actix_web::dev::ServiceRequest;
-use crate::auth::{verify_password, hash_password, store_user_session};
+use crate::auth::{verify_password, hash_password};
 use actix_session::Session;
 
 //to check role
@@ -118,7 +113,7 @@ async fn add_project(
             .await;
 
         match result {
-            Ok(res) => {
+            Ok(_res) => {
                 HttpResponse::Ok().body("New Project Inserted to database.")
             }
             Err(err) => {

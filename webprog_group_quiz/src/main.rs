@@ -1,8 +1,6 @@
 use actix_web::{App, HttpServer, web};
 use dotenvy::dotenv;
 use tera::Tera;
-use sqlx::sqlite::SqlitePool;
-use actix_session::config::CookieContentSecurity;
 use actix_session::{SessionMiddleware, storage::CookieSessionStore};
 use actix_web::cookie::Key;
 

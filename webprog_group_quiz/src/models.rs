@@ -20,7 +20,6 @@ pub struct NewBugReport {
     pub bug_title: String,
     pub bug_description: String,
     pub bug_severity: String,
-    pub report_time: Option<String>,
 }
 
 // Used for PATCH updates
@@ -30,7 +29,6 @@ pub struct UpdateBugReport {
     pub bug_description: Option<String>,
     pub bug_severity: Option<String>,
     pub report_time: Option<String>, // time of update
-
 }
 
 #[derive(Debug, Deserialize)]
