@@ -1,7 +1,5 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Sha256, Digest};
-use actix_session::Session;
-use actix_web::HttpResponse;
 
 
 const SALT: &str = "bugtrack2025";
@@ -26,10 +24,3 @@ pub fn verify_password(input_password: &str, expected_hash: &str) -> bool {
     hash_password(input_password) == expected_hash
 }
 
-
-// Store user login data in session
-pub fn store_user_session(session: &Session, username: &str, role: &str) -> Result<(), actix_web::Error> {
-    session.insert("username", username)?;
-    session.insert("role", role)?;
-    Ok(())
-}
