@@ -275,7 +275,6 @@ webprog_group_quiz/
 │   ├── handlers.rs      # HTTP request handlers
 │   ├── models.rs        # Data structures
 │   ├── auth.rs          # Authentication logic
-│   ├── auth_middleware.rs # Session middleware
 │   └── db.rs           # Database connection
 ├── templates/
 │   ├── bug_assign_form.html # Bug assignment interface
@@ -304,3 +303,20 @@ webprog_group_quiz/
 ## License
 
 This project is for educational purposes as part of a web programming course. 
+
+
+## What we wanted to do but not successful
+- We wanted to have the CRUD to have the webpage version of CRUD but was unable to suceed due to merge conflicts and git issues which leads us to debug pass the time limit. We then decided just cut the content of the html as we would pass the the dropbox closed timing also
+
+List of templates for what we wanted
+templates/
+├── bug_assign_form.html
+├── bugs_new.html
+├── bugs_update.html
+├── bugs.html
+├── close_project_form.html
+├── login.html
+├── projects_add.html
+├── projects.html
+├── register.html
+└── update_bug.html
