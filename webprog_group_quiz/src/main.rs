@@ -5,7 +5,6 @@ use actix_session::{SessionMiddleware, storage::CookieSessionStore};
 use actix_web::cookie::Key;
 
 mod auth;
-mod auth_middleware;
 mod db;
 mod handlers;
 mod models;

@@ -264,6 +264,7 @@ async fn update_bug(
         r#"
         UPDATE bugreport
         SET
+            assignee_id = COALESCE(?, assignee_id),
             bug_description = COALESCE(?, bug_description),
             bug_severity = COALESCE(?, bug_severity),
             report_time = COALESCE(?, report_time)
@@ -271,6 +272,7 @@ async fn update_bug(
         RETURNING bug_id, project_id, bug_title, bug_description, bug_severity, report_time, creator_id, assignee_id, assigned_by
         "#
     )
+    .bind(updates.assignee_id)
     .bind(updates.bug_description.as_deref())
     .bind(updates.bug_severity.as_deref())
     .bind(updates.report_time.as_deref())
