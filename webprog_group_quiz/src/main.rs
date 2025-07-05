@@ -41,6 +41,7 @@ async fn main() -> std::io::Result<()> {
                     .service(handlers::login)
                     .service(handlers::whoami)
                     .service(handlers::login_page)
+                    .service(handlers::register_page)
                     .service(handlers::logout)
             )
 

@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Register</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #f0f2f5;
+        }
+
+        .register-container {
+            background: white;
+            padding: 2rem;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            width: 100%;
+            max-width: 400px;
+        }
+
+        label, input, select {
+            display: block;
+            width: 100%;
+            margin-top: 1rem;
+        }
+
+        input, select {
+            padding: 0.6rem;
+        }
+
+        button {
+            margin-top: 1.5rem;
+            padding: 0.7rem;
+            width: 100%;
+            background: #28a745;
+            color: white;
+            border: none;
+            border-radius: 5px;
+        }
+
+        .error, .success {
+            margin-top: 1rem;
+            text-align: center;
+        }
+
+        .error {
+            color: red;
+        }
+
+        .success {
+            color: green;
+        }
+    </style>
+</head>
+<body>
+<div class="register-container">
+    <h2>Register</h2>
+    <form id="register-form">
+        <label for="username">Username:</label>
+        <input type="text" id="username" name="username" required>
+
+        <label for="password">Password:</label>
+        <input type="password" id="password" name="password" required>
+
+        <label for="role">Role:</label>
+        <select id="role" name="role" required>
+            <option value="developer">Developer</option>
+            <option value="qa">QA</option>
+        </select>
+
+        <button type="submit">Register</button>
+
+        <div id="message" class="error" style="display: none;"></div>
+
+            <!-- Back to Login Button -->
+    <button onclick="window.location.href='/login'" class="back-btn">Back to Login</button>
+    </form>
+</div>
+
+<script>
+document.getElementById("register-form").addEventListener("submit", async function (e) {
+    e.preventDefault();
+
+    const username = document.getElementById("username").value;
+    const password = document.getElementById("password").value;
+    const role = document.getElementById("role").value;
+
+    const response = await fetch("/register", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ username, password, role })
+    });
+
+    const messageDiv = document.getElementById("message");
+
+    if (response.ok) {
+        const result = await response.json();
+        messageDiv.textContent = result;
+        messageDiv.className = "success";
+        messageDiv.style.display = "block";
+        setTimeout(() => {
+            window.location.href = "/login";
+        }, 2000);
+    } else {
+        const errorText = await response.json();
+        messageDiv.textContent = errorText;
+        messageDiv.className = "error";
+        messageDiv.style.display = "block";
+    }
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Update Bug</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f0f2f5;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        .form-container {
+            background: white;
+            padding: 2rem;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            width: 100%;
+            max-width: 500px;
+        }
+
+        label, select, input {
+            display: block;
+            width: 100%;
+            margin-top: 1rem;
+        }
+
+        select, input {
+            padding: 0.6rem;
+        }
+
+        button {
+            margin-top: 1.5rem;
+            padding: 0.7rem;
+            width: 100%;
+            background: #007acc;
+            color: white;
+            border: none;
+            border-radius: 5px;
+        }
+
+        .status {
+            text-align: center;
+            margin-top: 1rem;
+        }
+
+        .success {
+            color: green;
+        }
+
+        .error {
+            color: red;
+        }
+    </style>
+</head>
+<body>
+<div class="form-container">
+    <h2>Update Bug</h2>
+    <form id="update-form">
+        <label for="bug_id">Select Bug:</label>
+        <select id="bug_id" name="bug_id" required>
+            <option value="">-- Select a Bug --</option>
+            {% for bug in bugs %}
+                <option 
+                    value="{{ bug.bug_id }}"
+                    data-description="{{ bug.bug_description | escape }}"
+                    data-severity="{{ bug.bug_severity }}"
+                    data-assignee="{{ bug.assignee_id | default(value="") }}"
+                >
+                    [#{{ bug.bug_id }}] {{ bug.bug_title }}
+                </option>
+            {% endfor %}
+        </select>
+
+        <label for="assignee_id">Assignee:</label>
+        <select id="assignee_id" name="assignee_id">
+            <option value="">-- Unassigned --</option>
+            {% for user in users %}
+                <option value="{{ user.id }}">{{ user.username }} ({{ user.role }})</option>
+            {% endfor %}
+        </select>
+
+        <label for="bug_description">Bug Description:</label>
+        <input type="text" id="bug_description" name="bug_description">
+
+        <label for="bug_severity">Bug Severity:</label>
+        <select id="bug_severity" name="bug_severity">
+            <option value="">--Select--</option>
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+        </select>
+
+        <button type="submit">Update Bug</button>
+        <div id="message" class="status"></div>
+    </form>
+</div>
+
+<script>
+document.getElementById("bug_id").addEventListener("change", function () {
+    const selected = this.options[this.selectedIndex];
+    document.getElementById("bug_description").value = selected.dataset.description || "";
+    document.getElementById("bug_severity").value = selected.dataset.severity || "";
+    document.getElementById("assignee_id").value = selected.dataset.assignee || "";
+});
+
+document.getElementById("update-form").addEventListener("submit", async function (e) {
+    e.preventDefault();
+
+    const bug_id = document.getElementById("bug_id").value;
+    const assignee_id = document.getElementById("assignee_id").value || null;
+    const bug_description = document.getElementById("bug_description").value || null;
+    const bug_severity = document.getElementById("bug_severity").value || null;
+
+    const response = await fetch(`/api/bugs/${bug_id}`, {
+        method: "PATCH",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            assignee_id: assignee_id ? parseInt(assignee_id) : null,
+            bug_description,
+            bug_severity
+        })
+    });
+
+    const messageDiv = document.getElementById("message");
+
+    if (response.ok) {
+        messageDiv.textContent = "Bug updated successfully!";
+        messageDiv.className = "status success";
+
+        document.getElementById("update-form").reset();
+
+        // Reload page after short delay to refresh bug list
+        setTimeout(() => {
+            window.location.reload();
+        }, 1500);
+    } else if (response.status === 404) {
+        messageDiv.textContent = "Bug not found.";
+        messageDiv.className = "status error";
+    } else {
+        const err = await response.text();
+        messageDiv.textContent = "Error: " + err;
+        messageDiv.className = "status error";
+    }
+});
+</script>
+</body>
+</html>

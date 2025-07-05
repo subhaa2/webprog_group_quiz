@@ -36,6 +36,10 @@ pub fn config(cfg: &mut web::ServiceConfig) {
             .route(web::post().to(set_bug_assigment_form))
     )
     .service(
+        web::resource("/bugs/update")
+            .route(web::get().to(get_bug_update_form))
+    )
+    .service(
         web::resource("/bugs/{id}")
             .route(web::get().to(get_bug))
             .route(web::patch().to(update_bug))
@@ -208,6 +212,51 @@ async fn get_bug(
     }
 }
 
+async fn get_bug_update_form(
+    pool: web::Data<SqlitePool>,
+    tmpl: web::Data<Tera>,
+    session: Session,
+) -> impl Responder {
+    let bugs_result = sqlx::query_as!(
+        BugReport,
+        "SELECT bug_id, creator_id, assignee_id, assigned_by, project_id, bug_title, bug_description, bug_severity, report_time FROM bugreport"
+    )
+    .fetch_all(pool.get_ref())
+    .await;
+
+    let users_result = sqlx::query_as!(
+        User,
+        "SELECT id, username, password_hash, role FROM users WHERE role = 'developer'"
+    )
+    .fetch_all(pool.get_ref())
+    .await;
+
+    match (bugs_result, users_result) {
+        (Ok(bugs), Ok(users)) => {
+            let mut ctx = Context::new();
+            ctx.insert("bugs", &bugs);
+            ctx.insert("users", &users);
+
+            let current_user_role = session.get::<String>("role").unwrap_or(None).unwrap_or_default();
+            ctx.insert("current_user_role", &current_user_role);
+
+            match tmpl.render("update_bug.html", &ctx) {
+                Ok(html) => HttpResponse::Ok().content_type("text/html").body(html),
+                Err(e) => {
+                    eprintln!("Template error: {}", e);
+                    HttpResponse::InternalServerError().body("Template error")
+                }
+            }
+        }
+        (Err(e1), _) | (_, Err(e1)) => {
+            eprintln!("Error fetching data for update form: {:?}", e1);
+            HttpResponse::InternalServerError().body("Failed to load data.")
+        }
+    }
+}
+
+
+
 // Update bug report of the specified ID
 async fn update_bug(
     db: web::Data<SqlitePool>,
@@ -358,7 +407,6 @@ async fn get_bug_assignment_form(
     }
 }
 
-
 #[post("/register")]
 pub async fn register(
     db: web::Data<SqlitePool>,
@@ -404,6 +452,21 @@ pub async fn register(
         }
     }
 }
+
+#[get("/register")]
+pub async fn register_page(tmpl: web::Data<tera::Tera>) -> impl Responder {
+    let ctx = tera::Context::new();
+    match tmpl.render("register.html", &ctx) {
+        Ok(html) => HttpResponse::Ok()
+            .content_type("text/html")
+            .body(html),
+        Err(err) => {
+            eprintln!("Template render error: {:?}", err);
+            HttpResponse::InternalServerError().body("Template error")
+        }
+    }
+}
+
 
 #[post("/login")]
 pub async fn login(
